@@ -15,6 +15,11 @@ const DeleteSchema = z.object({
   guest_token: z.string().optional(),
 });
 
+const PatchSchema = z.object({
+  rsvp_id: z.string().uuid(),
+  guest_count: z.number().int().min(1).max(99),
+});
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ slug: string }> }
@@ -101,6 +106,40 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("DELETE /rsvps failed:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// Host/co-host only: correct a guest's reported party size.
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  try {
+    const { slug } = await params;
+    const resolved = await resolveWriteContext(request, slug, "rsvp");
+    if (!resolved.ok) return resolved.response;
+    const { user, potluck, service } = resolved.ctx;
+
+    if (!user || !(await isHostOrCohost(service, potluck.id, user.id))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const parsed = PatchSchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid data" }, { status: 400 });
+    }
+
+    const { error } = await service
+      .from("rsvps")
+      .update({ guest_count: parsed.data.guest_count })
+      .eq("id", parsed.data.rsvp_id)
+      .eq("potluck_id", potluck.id);
+
+    if (error) return NextResponse.json({ error: "Failed to update RSVP." }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("PATCH /rsvps failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

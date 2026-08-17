@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useRealtimeClaims, useRealtimeOffers } from "@/hooks/use-realtime-claims";
+import { useRealtimeClaims, useRealtimeOffers, useRealtimeRsvps } from "@/hooks/use-realtime-claims";
 import { VerificationPanel } from "@/components/verification-panel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +32,13 @@ import {
   Save,
   X,
   UserPlus,
+  UserCheck,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { formatDateTime, getClaimProgress } from "@/lib/utils";
-import { NEEDS_WITH_CLAIMS_SELECT, OFFERS_SELECT } from "@/lib/db-columns";
-import type { Potluck, NeedWithClaims, OfferWithProfile, Invite, CohostWithProfile, CohostInvite } from "@/types/database";
+import { NEEDS_WITH_CLAIMS_SELECT, OFFERS_SELECT, RSVPS_SELECT } from "@/lib/db-columns";
+import type { Potluck, NeedWithClaims, OfferWithProfile, Invite, CohostWithProfile, CohostInvite, RsvpWithProfile } from "@/types/database";
 
 export default function ManagePotluckPage() {
   const params = useParams();
@@ -50,9 +51,10 @@ export default function ManagePotluckPage() {
   const [potluck, setPotluck] = useState<Potluck | null>(null);
   const [rawNeeds, setRawNeeds] = useState<NeedWithClaims[]>([]);
   const [rawOffers, setRawOffers] = useState<OfferWithProfile[]>([]);
+  const [rawRsvps, setRawRsvps] = useState<RsvpWithProfile[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"overview" | "verify" | "invites" | "cohosts">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "attendees" | "verify" | "invites" | "cohosts">("overview");
   const [cohosts, setCohosts] = useState<CohostWithProfile[]>([]);
   const [cohostInvites, setCohostInvites] = useState<CohostInvite[]>([]);
   const [cohostEmail, setCohostEmail] = useState("");
@@ -69,9 +71,13 @@ export default function ManagePotluckPage() {
   const [editNeedName, setEditNeedName] = useState("");
   const [editNeedEmoji, setEditNeedEmoji] = useState("");
   const [editNeedQuantity, setEditNeedQuantity] = useState(1);
+  const [editingRsvpId, setEditingRsvpId] = useState<string | null>(null);
+  const [editRsvpCount, setEditRsvpCount] = useState(1);
+  const [savingRsvpCount, setSavingRsvpCount] = useState(false);
 
   const { needs, refetchNeeds } = useRealtimeClaims(potluck?.id || "", rawNeeds);
   const { offers, refetchOffers } = useRealtimeOffers(potluck?.id || "", rawOffers);
+  const { rsvps, refetchRsvps } = useRealtimeRsvps(potluck?.id || "", rawRsvps);
 
   const fetchData = useCallback(async () => {
     const { data: potluckData } = await supabase
@@ -87,7 +93,7 @@ export default function ManagePotluckPage() {
 
     setPotluck(potluckData);
 
-    const [needsRes, offersRes, invitesRes, cohostsRes, cohostInvitesRes] = await Promise.all([
+    const [needsRes, offersRes, rsvpsRes, invitesRes, cohostsRes, cohostInvitesRes] = await Promise.all([
       supabase
         .from("needs")
         .select(NEEDS_WITH_CLAIMS_SELECT)
@@ -96,6 +102,11 @@ export default function ManagePotluckPage() {
       supabase
         .from("offers")
         .select(OFFERS_SELECT)
+        .eq("potluck_id", potluckData.id)
+        .order("created_at"),
+      supabase
+        .from("rsvps")
+        .select(RSVPS_SELECT)
         .eq("potluck_id", potluckData.id)
         .order("created_at"),
       supabase
@@ -116,6 +127,7 @@ export default function ManagePotluckPage() {
 
     setRawNeeds((needsRes.data as NeedWithClaims[]) || []);
     setRawOffers(offersRes.data || []);
+    setRawRsvps((rsvpsRes.data as RsvpWithProfile[]) || []);
     setInvites(invitesRes.data || []);
     setCohosts((cohostsRes.data as CohostWithProfile[]) || []);
     setCohostInvites(cohostInvitesRes.data || []);
@@ -244,6 +256,64 @@ export default function ManagePotluckPage() {
       refetchNeeds();
     } else {
       toast.error("Failed to update need.");
+    }
+  };
+
+  // Claims keyed by the same identity (profile_id, falling back to guest_name)
+  // used to attribute an RSVP, so each attendee row can show what they claimed.
+  const claimsByIdentity = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; needName: string; emoji: string; quantity: number; verified: boolean }[]
+    >();
+    for (const need of needs) {
+      for (const claim of need.claims) {
+        const key = claim.profile_id || claim.guest_name;
+        if (!key) continue;
+        const list = map.get(key) || [];
+        list.push({
+          id: claim.id,
+          needName: need.name,
+          emoji: need.emoji,
+          quantity: claim.quantity,
+          verified: claim.verified,
+        });
+        map.set(key, list);
+      }
+    }
+    return map;
+  }, [needs]);
+
+  const claimsForRsvp = (rsvp: RsvpWithProfile) =>
+    claimsByIdentity.get(rsvp.profile_id || rsvp.guest_name || "") || [];
+
+  const totalAttendees = useMemo(
+    () => rsvps.reduce((sum, r) => sum + (r.guest_count ?? 1), 0),
+    [rsvps]
+  );
+
+  const startEditRsvp = (rsvp: RsvpWithProfile) => {
+    setEditingRsvpId(rsvp.id);
+    setEditRsvpCount(rsvp.guest_count ?? 1);
+  };
+
+  const saveRsvpCount = async () => {
+    if (!editingRsvpId) return;
+    setSavingRsvpCount(true);
+    try {
+      const res = await fetch(`/api/potlucks/${slug}/rsvps`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rsvp_id: editingRsvpId, guest_count: editRsvpCount }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Party size updated!");
+      setEditingRsvpId(null);
+      refetchRsvps();
+    } catch {
+      toast.error("Failed to update party size.");
+    } finally {
+      setSavingRsvpCount(false);
     }
   };
 
@@ -435,7 +505,13 @@ export default function ManagePotluckPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <Card>
+          <CardContent className="p-4 text-center">
+            <p className="text-3xl font-bold text-warm-green">{totalAttendees}</p>
+            <p className="text-xs text-muted-foreground mt-1">Attending</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-3xl font-bold text-warm-green">
@@ -486,6 +562,26 @@ export default function ManagePotluckPage() {
         >
           <Users className="inline mr-1.5 h-4 w-4" aria-hidden="true" />
           Overview
+        </button>
+        <button
+          role="tab"
+          id="tab-attendees"
+          aria-selected={activeTab === "attendees"}
+          aria-controls="panel-attendees"
+          onClick={() => setActiveTab("attendees")}
+          className={`shrink-0 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            activeTab === "attendees"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <UserCheck className="inline mr-1.5 h-4 w-4" aria-hidden="true" />
+          Attendees
+          {rsvps.length > 0 && (
+            <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
+              {rsvps.length}
+            </Badge>
+          )}
         </button>
         <button
           role="tab"
@@ -751,6 +847,118 @@ export default function ManagePotluckPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {activeTab === "attendees" && (
+        <div role="tabpanel" id="panel-attendees" aria-labelledby="tab-attendees" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <UserCheck className="h-5 w-5" />
+                  Attendees
+                </span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {totalAttendees} {totalAttendees === 1 ? "person" : "people"} · {rsvps.length} RSVP{rsvps.length === 1 ? "" : "s"}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {rsvps.length === 0 ? (
+                <div className="text-center py-8">
+                  <UserCheck className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                  <p className="text-muted-foreground">No RSVPs yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {rsvps.map((rsvp) => {
+                    const claims = claimsForRsvp(rsvp);
+                    return (
+                      <div
+                        key={rsvp.id}
+                        className="flex items-center gap-3 p-3 rounded-lg border"
+                      >
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarImage src={rsvp.profile?.avatar_url || undefined} />
+                          <AvatarFallback className="text-xs bg-warm-green/10 text-warm-green">
+                            {(rsvp.profile?.display_name || rsvp.guest_name || "?").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {rsvp.profile?.display_name || rsvp.guest_name || "Guest"}
+                          </p>
+                          {claims.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {claims.map((c) => (
+                                <Badge key={c.id} variant="outline" className="text-xs">
+                                  {c.emoji} {c.needName}
+                                  {c.quantity > 1 ? ` ×${c.quantity}` : ""}
+                                  {c.verified && <span className="ml-1 text-warm-green">✓</span>}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground mt-0.5">Nothing claimed yet</p>
+                          )}
+                        </div>
+                        {editingRsvpId === rsvp.id ? (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={99}
+                              value={editRsvpCount}
+                              onChange={(e) =>
+                                setEditRsvpCount(Math.max(1, Math.min(99, parseInt(e.target.value, 10) || 1)))
+                              }
+                              className="w-16 h-8 text-center"
+                              autoFocus
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={saveRsvpCount}
+                              disabled={savingRsvpCount}
+                              title="Save"
+                            >
+                              <Save className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8"
+                              onClick={() => setEditingRsvpId(null)}
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Badge variant="secondary">
+                              {rsvp.guest_count ?? 1} {(rsvp.guest_count ?? 1) === 1 ? "person" : "people"}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => startEditRsvp(rsvp)}
+                              title="Edit party size"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
