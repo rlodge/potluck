@@ -4,10 +4,7 @@ import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  GuestIdentityModal,
-  getStoredGuestIdentity,
-} from "@/components/guest-identity-modal";
+import { GuestIdentityModal } from "@/components/guest-identity-modal";
 import { getGuestToken, storeGuestToken, removeGuestToken } from "@/lib/guest-tokens";
 import {
   Dialog,
@@ -43,7 +40,11 @@ export function RsvpSection({
     return rsvps.find((r) => !!getGuestToken("rsvp", r.id));
   }, [rsvps, user]);
 
-  const handleRsvp = async (guestName?: string, guestEmail?: string) => {
+  const handleRsvp = async (
+    guestName?: string,
+    guestEmail?: string,
+    guestCount?: number
+  ) => {
     setLoading(true);
     try {
       const res = await fetch(`/api/potlucks/${potluckSlug}/rsvps`, {
@@ -52,6 +53,7 @@ export function RsvpSection({
         body: JSON.stringify({
           guest_name: guestName,
           guest_email: guestEmail || undefined,
+          guest_count: guestCount,
         }),
       });
       const data = await res.json();
@@ -107,16 +109,7 @@ export function RsvpSection({
       handleCancel();
       return;
     }
-    if (!user) {
-      const stored = getStoredGuestIdentity();
-      if (stored) {
-        handleRsvp(stored.name, stored.email);
-      } else {
-        setShowGuestModal(true);
-      }
-      return;
-    }
-    handleRsvp();
+    setShowGuestModal(true);
   };
 
   const displayName = (rsvp: RsvpWithProfile) =>
@@ -129,6 +122,10 @@ export function RsvpSection({
 
   const [showAllRsvps, setShowAllRsvps] = useState(false);
   const overflow = rsvps.length - AVATAR_DISPLAY_LIMIT;
+  const totalHeadcount = useMemo(
+    () => rsvps.reduce((sum, r) => sum + (r.guest_count ?? 1), 0),
+    [rsvps]
+  );
 
   return (
     <div className="space-y-4">
@@ -139,7 +136,7 @@ export function RsvpSection({
             Attending
             {rsvps.length > 0 && (
               <span className="text-muted-foreground font-normal ml-1.5 text-base">
-                ({rsvps.length})
+                ({totalHeadcount})
               </span>
             )}
           </h3>
@@ -207,7 +204,7 @@ export function RsvpSection({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Users className="h-4 w-4" />
-              Attending ({rsvps.length})
+              Attending ({totalHeadcount})
             </DialogTitle>
           </DialogHeader>
           <div className="overflow-y-auto -mx-1 px-1 space-y-1">
@@ -225,6 +222,11 @@ export function RsvpSection({
                 <span className="text-sm font-medium truncate">
                   {displayName(rsvp)}
                 </span>
+                {(rsvp.guest_count ?? 1) > 1 && (
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    party of {rsvp.guest_count}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -234,9 +236,10 @@ export function RsvpSection({
       <GuestIdentityModal
         open={showGuestModal}
         onClose={() => setShowGuestModal(false)}
-        onSubmit={(name, email) => {
+        requireIdentity={!user}
+        onSubmit={(name, email, count) => {
           setShowGuestModal(false);
-          handleRsvp(name, email);
+          handleRsvp(name || undefined, email || undefined, count);
         }}
       />
     </div>

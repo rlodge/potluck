@@ -7,6 +7,7 @@ import { isHostOrCohost } from "@/lib/auth-helpers";
 const CreateSchema = z.object({
   guest_name: z.string().trim().min(1).max(80).optional(),
   guest_email: z.string().email().max(200).optional(),
+  guest_count: z.number().int().min(1).max(99).optional(),
 });
 
 const DeleteSchema = z.object({
@@ -43,6 +44,7 @@ export async function POST(
         profile_id: user?.id ?? null,
         guest_name: isGuest ? body.guest_name : null,
         guest_email: isGuest ? body.guest_email ?? null : null,
+        guest_count: body.guest_count ?? 1,
         guest_token: guestToken,
       })
       .select("id")

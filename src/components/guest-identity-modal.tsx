@@ -38,78 +38,119 @@ function storeGuestIdentity(identity: GuestIdentity) {
 interface GuestIdentityModalProps {
   open: boolean;
   onClose: () => void;
-  onSubmit: (name: string, email: string) => void;
+  onSubmit: (name: string, email: string, count: number) => void;
+  /** False when the caller is already an authenticated user — skips the name/email fields and only asks for party size. */
+  requireIdentity?: boolean;
 }
 
 export function GuestIdentityModal({
   open,
   onClose,
   onSubmit,
+  requireIdentity = true,
 }: GuestIdentityModalProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [count, setCount] = useState(1);
 
   useEffect(() => {
-    const stored = getStoredGuestIdentity();
-    if (stored) {
-      setName(stored.name);
-      setEmail(stored.email);
+    if (!open) return;
+    setCount(1);
+    if (requireIdentity) {
+      const stored = getStoredGuestIdentity();
+      if (stored) {
+        setName(stored.name);
+        setEmail(stored.email);
+      }
     }
-  }, []);
+  }, [open, requireIdentity]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    storeGuestIdentity({ name: name.trim(), email: email.trim() });
-    onSubmit(name.trim(), email.trim());
+    if (requireIdentity) {
+      if (!name.trim()) return;
+      storeGuestIdentity({ name: name.trim(), email: email.trim() });
+    }
+    onSubmit(name.trim(), email.trim(), count);
   };
+
+  const canSubmit = requireIdentity ? !!name.trim() : true;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>What&apos;s your name?</DialogTitle>
+          <DialogTitle>
+            {requireIdentity ? "What's your name?" : "How many are coming?"}
+          </DialogTitle>
           <DialogDescription>
-            So everyone knows who&apos;s bringing what.
+            {requireIdentity
+              ? "So everyone knows who's bringing what."
+              : "Let the host know your party size."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {requireIdentity && (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="guest-name">Display name *</Label>
+                <Input
+                  id="guest-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="guest-email">
+                  Email <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="guest-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  For notifications if the host verifies your contribution.
+                </p>
+              </div>
+            </>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="guest-name">Display name *</Label>
-            <Input
-              id="guest-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              autoFocus
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="guest-email">
-              Email <span className="text-muted-foreground">(optional)</span>
+            <Label htmlFor="guest-count">
+              How many are coming?{" "}
+              <span className="text-muted-foreground">(including you)</span>
             </Label>
             <Input
-              id="guest-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              id="guest-count"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={99}
+              value={count}
+              autoFocus={!requireIdentity}
+              onChange={(e) => {
+                const parsed = parseInt(e.target.value, 10);
+                setCount(Number.isFinite(parsed) ? Math.min(99, Math.max(1, parsed)) : 1);
+              }}
             />
-            <p className="text-xs text-muted-foreground">
-              For notifications if the host verifies your contribution.
-            </p>
           </div>
           <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <Button type="submit" disabled={!name.trim()} className="w-full">
-              Continue
+            <Button type="submit" disabled={!canSubmit} className="w-full">
+              {requireIdentity ? "Continue" : "RSVP"}
             </Button>
-            <p className="text-xs text-center text-muted-foreground">
-              Want to earn points?{" "}
-              <Link href="/auth/login" className="text-primary underline">
-                Create an account
-              </Link>
-            </p>
+            {requireIdentity && (
+              <p className="text-xs text-center text-muted-foreground">
+                Want to earn points?{" "}
+                <Link href="/auth/login" className="text-primary underline">
+                  Create an account
+                </Link>
+              </p>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

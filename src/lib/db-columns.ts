@@ -12,7 +12,7 @@ export const OFFER_COLUMNS =
   "id, potluck_id, profile_id, guest_name, emoji, name, description, verified, points_awarded, created_at";
 
 export const RSVP_COLUMNS =
-  "id, potluck_id, profile_id, guest_name, created_at";
+  "id, potluck_id, profile_id, guest_name, guest_count, created_at";
 
 const PROFILE_JOIN = "profile:profiles(display_name, avatar_url)";
 

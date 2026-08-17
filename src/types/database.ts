@@ -355,6 +355,7 @@ export interface Database {
           profile_id: string | null;
           guest_name: string | null;
           guest_email: string | null;
+          guest_count: number;
           created_at: string;
         };
         Insert: {
@@ -363,6 +364,7 @@ export interface Database {
           profile_id?: string | null;
           guest_name?: string | null;
           guest_email?: string | null;
+          guest_count?: number;
           created_at?: string;
         };
         Update: {
@@ -370,6 +372,7 @@ export interface Database {
           profile_id?: string | null;
           guest_name?: string | null;
           guest_email?: string | null;
+          guest_count?: number;
         };
         Relationships: [
           {
