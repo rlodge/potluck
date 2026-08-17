@@ -223,6 +223,7 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    console.error("POST /verify failed:", err);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

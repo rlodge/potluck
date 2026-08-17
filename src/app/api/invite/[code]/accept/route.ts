@@ -52,7 +52,8 @@ export async function POST(
     }
 
     return NextResponse.json({ slug, accepted: true });
-  } catch {
+  } catch (err) {
+    console.error("POST /invite/accept failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -63,7 +63,8 @@ export async function POST(
       return NextResponse.json({ error: "Failed to add offer." }, { status: 500 });
     }
     return NextResponse.json({ offer_id: data.id, guest_token: guestToken });
-  } catch {
+  } catch (err) {
+    console.error("POST /offers failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -104,7 +105,8 @@ export async function DELETE(
     const { error } = await service.from("offers").delete().eq("id", offer.id);
     if (error) return NextResponse.json({ error: "Failed to remove offer." }, { status: 500 });
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error("DELETE /offers failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

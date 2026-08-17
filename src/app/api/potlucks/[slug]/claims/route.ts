@@ -87,7 +87,8 @@ export async function POST(
     }
 
     return NextResponse.json({ claim: data, guest_token: guestToken });
-  } catch {
+  } catch (err) {
+    console.error("POST /claims failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -134,7 +135,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to unclaim." }, { status: 500 });
     }
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error("DELETE /claims failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -55,7 +55,8 @@ export async function POST(
       return NextResponse.json({ error: "Failed to RSVP." }, { status: 500 });
     }
     return NextResponse.json({ rsvp_id: data.id, guest_token: guestToken });
-  } catch {
+  } catch (err) {
+    console.error("POST /rsvps failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -96,7 +97,8 @@ export async function DELETE(
     const { error } = await service.from("rsvps").delete().eq("id", rsvp.id);
     if (error) return NextResponse.json({ error: "Failed to cancel RSVP." }, { status: 500 });
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (err) {
+    console.error("DELETE /rsvps failed:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
