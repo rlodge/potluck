@@ -20,7 +20,7 @@ export function useAuth() {
     try {
       const { data } = await getSupabase()
         .from("profiles")
-        .select("*")
+        .select("id, display_name, avatar_url, total_points")
         .eq("id", userId)
         .single();
       setProfile(data as Profile | null);
